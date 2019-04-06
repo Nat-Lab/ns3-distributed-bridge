@@ -34,7 +34,7 @@ FdReader::Data DistributedBridgeFdReader::DoRead () {
 
     NS_ASSERT_MSG(left == 0, "left != 0, internal error.");
 
-    return FdReader::Data ((uint8_t *) pl, len + 2);
+    return FdReader::Data ((uint8_t *) pl, pl->payload_len + 2);
 }
 
 NS_OBJECT_ENSURE_REGISTERED(DistributedBridge);
