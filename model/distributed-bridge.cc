@@ -51,7 +51,7 @@ TypeId DistributedBridge::GetTypeId (void) {
     return tid;
 }
 
-DistributedBridge::DistributedBridge () : m_start_events (), m_stop_events () {
+DistributedBridge::DistributedBridge () {
     m_node = 0;
     m_ifindex = 0;
     m_fd = -1;
@@ -63,6 +63,7 @@ DistributedBridge::DistributedBridge () : m_start_events (), m_stop_events () {
     m_server_addr.sin_family = AF_INET;
     m_server_addr.sin_port = htons(2672);
     inet_pton(AF_INET, "127.0.0.1", &m_server_addr.sin_addr);
+    Simulator::Schedule (Seconds (0.), &DistributedBridge::ConnectServer, this);
 }
 
 DistributedBridge::~DistributedBridge () {
@@ -193,6 +194,12 @@ bool DistributedBridge::IsServerConnected (void) const {
 }
 
 void DistributedBridge::ReadCallback (uint8_t *buf, ssize_t len) {
+    if (len <= 0) {
+        NS_LOG_WARN ("DistributedBridge: read() from socket failed.");
+        DisconnetServer ();
+        return;
+    }
+
     NS_ASSERT_MSG (buf != 0, "invalid buffer.");
 
     if (len < 2) {
@@ -281,7 +288,13 @@ bool DistributedBridge::ReceiveFromBridgedDevice (Ptr<NetDevice> device, Ptr<con
     m_pl.payload_len = pkt->GetSize();
     NS_LOG_INFO("DistributedBridge: forwarding traffic to server.");
     ssize_t w_len = write (m_fd, &m_pl, pkt->GetSize() + 2);
-    NS_ABORT_MSG_IF(w_len < 0, "write() failed");
+
+    if (w_len <= 0) {
+        NS_LOG_WARN ("DistributedBridge: write() to socket returned 0.");
+        DisconnetServer ();
+        return false;
+    }
+
     NS_ABORT_MSG_IF(w_len != pkt->GetSize() + 2, "wrote != pkt_size");
 
     return true;

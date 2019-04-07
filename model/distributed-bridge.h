@@ -102,8 +102,6 @@ private:
     uint16_t m_mtu;
     uint32_t m_nodeid;
 
-    EventId m_start_events;
-    EventId m_stop_events;
     Mac48Address m_addr;
     
     bool m_isup;
