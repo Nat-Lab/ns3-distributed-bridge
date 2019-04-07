@@ -43,7 +43,10 @@ TypeId DistributedBridge::GetTypeId (void) {
     static TypeId tid = TypeId ("ns3::DistributedBridge")
         .SetParent<NetDevice> ()
         .AddConstructor<DistributedBridge> ()
-        .AddAttribute ("Mtu", "L2 MTU", UintegerValue (0), MakeUintegerAccessor(&DistributedBridge::SetMtu, &DistributedBridge::GetMtu), MakeUintegerChecker<uint16_t> ());
+        .AddAttribute ("Mtu", "L2 MTU", UintegerValue (0), MakeUintegerAccessor(&DistributedBridge::SetMtu, &DistributedBridge::GetMtu), MakeUintegerChecker<uint16_t> ())
+        .AddAttribute ("Server", "Address of distribution server", Ipv4AddressValue ("127.0.0.1"), MakeIpv4AddressAccessor(&DistributedBridge::SetServerAddress, &DistributedBridge::GetServerAddress), MakeIpv4AddressChecker())
+        .AddAttribute ("ServerPort", "Port of distribution server", UintegerValue (2672), MakeUintegerAccessor(&DistributedBridge::SetServerPort, &DistributedBridge::GetServerPort), MakeUintegerChecker<in_port_t> ())
+        .AddAttribute ("ChannelID", "ID of channel to join", UintegerValue (0), MakeUintegerAccessor(&DistributedBridge::SetServerChannel, &DistributedBridge::GetServerChannel), MakeUintegerChecker<uint8_t> ());
 
     return tid;
 }
@@ -75,6 +78,36 @@ void DistributedBridge::SetServer (const char *addr, in_port_t port, uint8_t cha
     m_channel_id = channel_id;
     m_server_addr.sin_port = htons(port);
     inet_pton(AF_INET, addr, &m_server_addr.sin_addr);
+}
+
+void DistributedBridge::SetServer (const Ipv4Address addr, in_port_t port, uint8_t channel_id) {
+    m_channel_id = channel_id;
+    m_server_addr.sin_port = htons(port);
+    m_server_addr.sin_addr.s_addr = htonl(addr.Get());
+}
+
+void DistributedBridge::SetServerAddress (Ipv4Address addr) {
+    m_server_addr.sin_addr.s_addr = htonl(addr.Get());
+}
+
+Ipv4Address DistributedBridge::GetServerAddress (void) const {
+    return Ipv4Address (ntohl(m_server_addr.sin_addr.s_addr));
+}
+
+void DistributedBridge::SetServerPort (in_port_t port) {
+    m_server_addr.sin_port = htons(port);
+}
+
+in_port_t DistributedBridge::GetServerPort (void) const {
+    return ntohs(m_server_addr.sin_port);
+}
+
+void DistributedBridge::SetServerChannel (uint8_t channel_id) {
+    m_channel_id = channel_id;
+}
+
+uint8_t DistributedBridge::GetServerChannel (void) const {
+    return m_channel_id;
 }
 
 bool DistributedBridge::ConnectServer () {

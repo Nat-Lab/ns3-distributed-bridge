@@ -39,6 +39,13 @@ public:
     virtual ~DistributedBridge();
 
     void SetServer (const char *addr, in_port_t port, uint8_t channel_id);
+    void SetServer (const Ipv4Address addr, in_port_t port, uint8_t channel_id);
+    void SetServerAddress (const Ipv4Address addr);
+    Ipv4Address GetServerAddress (void) const;
+    void SetServerPort (in_port_t port);
+    in_port_t GetServerPort (void) const;
+    void SetServerChannel (uint8_t channel_id);
+    uint8_t GetServerChannel (void) const;
     bool ConnectServer ();
     void DisconnetServer ();
     bool IsServerConnected (void) const;
