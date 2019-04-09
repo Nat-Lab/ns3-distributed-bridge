@@ -16,23 +16,20 @@ FdReader::Data DistributedBridgeFdReader::DoRead () {
         return FdReader::Data ((uint8_t *) pl, len);
     }
 
-    len = read(m_fd, &pl->payload, pl->payload_len);
-    ssize_t left = pl->payload_len - len;
-
-    while (left > 0) {
-        NS_LOG_INFO ("DistributedBridgeFdReader::DoRead: imcomplete packet: " << left << "more bytes to read.");
-        len = read(m_fd, (&pl->payload) + len, left);
+    ssize_t buffered = 0;
+    while (buffered < pl->payload_len) {
+        len = read(m_fd, (&pl->payload) + buffered, pl->payload_len - buffered);
         if (len < 0) {
-            NS_LOG_WARN ("DistributedBridgeFdReader::DoRead: while completing packet, read() returned < 0: " << len);
+            NS_LOG_WARN ("DistributedBridgeFdReader::DoRead: while buffering, read() returned < 0: " << len);
             std::free (pl);
             len = 0;
             pl = 0;
             return FdReader::Data ((uint8_t *) pl, len);
         }
-        left -= len;
+        buffered += len;
     }
 
-    NS_ASSERT_MSG(left == 0, "left != 0, internal error.");
+    NS_ASSERT_MSG(buffered == pl->payload_len, "buffered != payload_len, internal error.");
 
     return FdReader::Data ((uint8_t *) pl, pl->payload_len + 2);
 }
