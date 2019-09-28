@@ -42,8 +42,11 @@ DistributedBridgeHelper dist ("127.0.0.1", 2672, 1);
 Ptr<Node> client_node = CreateObject<Node> ();
 Ptr<Node> br_node = CreateObject<Node> ();
 
-// Install internet stack
+// Install internet stack & CSMA
 inet.Install(NodeContainer (client_node, br_node));
+NetDeviceContainer devs = csma.Install(nodes);
+Ptr<NetDevice> dev_br = devs.Get(0);
+Ptr<NetDevice> dev_client = devs.Get(1);
 
 // Assign address for client. Note that no address is needed on dist-bridge
 // node
