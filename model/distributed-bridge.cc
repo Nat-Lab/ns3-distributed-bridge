@@ -4,15 +4,16 @@ namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE("DistributedBridge");
 
-FdReader::Data DistributedBridgeFdReader::DoRead () {
+FdReader::Data DistributedBridgeFdReader::DoRead (void) {
     payload_t *pl = new payload_t;
 
     ssize_t len = read (m_fd, &pl->payload_len, 2); // read header
     if (len <= 0) {
-        NS_LOG_WARN ("DistributedBridgeFdReader::DoRead: read returned <= 0: " << len);
+        NS_LOG_WARN ("read returned <= 0: " << len);
         std::free (pl);
-        len = 0;
+        len = 1; // use len = 1 since FdRead refuses to pass buf with len = 0
         pl = 0;
+        
         return FdReader::Data ((uint8_t *) pl, len);
     }
 
@@ -20,9 +21,9 @@ FdReader::Data DistributedBridgeFdReader::DoRead () {
     while (buffered < pl->payload_len) {
         len = read(m_fd, (&pl->payload) + buffered, pl->payload_len - buffered);
         if (len < 0) {
-            NS_LOG_WARN ("DistributedBridgeFdReader::DoRead: while buffering, read() returned < 0: " << len);
+            NS_LOG_WARN ("while buffering, read() returned < 0: " << len);
             std::free (pl);
-            len = 0;
+            len = 1; // use len = 1 since FdRead refuses to pass buf with len = 0
             pl = 0;
             return FdReader::Data ((uint8_t *) pl, len);
         }
@@ -60,7 +61,7 @@ DistributedBridge::DistributedBridge () {
     m_server_addr.sin_family = AF_INET;
     m_server_addr.sin_port = htons(2672);
     inet_pton(AF_INET, "127.0.0.1", &m_server_addr.sin_addr);
-    Simulator::Schedule (Seconds (0.), &DistributedBridge::ConnectServer, this);
+    Simulator::Schedule (Seconds (0.), &DistributedBridge::TryConnectServer, this);
 }
 
 DistributedBridge::~DistributedBridge () {
@@ -108,14 +109,21 @@ uint8_t DistributedBridge::GetServerChannel (void) const {
     return m_channel_id;
 }
 
+void DistributedBridge::TryConnectServer() {
+    if (!ConnectServer()) {
+        NS_LOG_WARN("Failed to connect to server. Scheduling retry in 1 sec.");
+        Simulator::Schedule(Seconds(1.), &DistributedBridge::TryConnectServer, this);
+    }
+}
+
 bool DistributedBridge::ConnectServer () {
     if (m_connected) {
-        NS_LOG_WARN("DistributedBridge::ConnectServer: already connected.");
+        NS_LOG_WARN("already connected.");
         return false;
     }
 
     if (m_fd > 0) {
-        NS_FATAL_ERROR("DistributedBridge::ConnectServer: m_fd > 0, but m_connected false.");
+        NS_FATAL_ERROR("m_fd > 0, but m_connected false.");
         return false;
     }
 
@@ -127,7 +135,7 @@ bool DistributedBridge::ConnectServer () {
     int nodelay = 1;
     int sso_ret = setsockopt(m_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(int));
     if (sso_ret < 0) {
-        NS_LOG_WARN("DistributedBridge::ConnectServer: setsockopt() failed: " << strerror(errno));
+        NS_LOG_WARN("setsockopt() failed: " << strerror(errno));
         close(m_fd);
         m_fd = -1;
         return false;
@@ -135,7 +143,7 @@ bool DistributedBridge::ConnectServer () {
 
     int conn_ret = connect(m_fd, (struct sockaddr *) &m_server_addr, sizeof(struct sockaddr_in));
     if (conn_ret < 0) {
-        NS_LOG_WARN("DistributedBridge::ConnectServer: connect() failed: " << strerror(errno));
+        NS_LOG_WARN("connect() failed: " << strerror(errno));
         close(m_fd);
         m_fd = -1;
         return false;
@@ -145,13 +153,13 @@ bool DistributedBridge::ConnectServer () {
     hs.id = m_channel_id;
     ssize_t w_len = write(m_fd, &hs, sizeof(handshake_msg_t));
     if (w_len < 0) {
-        NS_LOG_WARN("DistributedBridge::ConnectServer: handshake write() failed: " << strerror(errno));
+        NS_LOG_WARN("handshake write() failed: " << strerror(errno));
         close(m_fd);
         m_fd = -1;
         return false;
     }
     if ((size_t) w_len != sizeof(handshake_msg_t)) {
-        NS_LOG_WARN("DistributedBridge::ConnectServer: handshake write() return value != sizeof(handshake_msg_t).");
+        NS_LOG_WARN("handshake write() return value != sizeof(handshake_msg_t).");
         close(m_fd);
         m_fd = -1;
         return false;
@@ -162,7 +170,7 @@ bool DistributedBridge::ConnectServer () {
 
     NotifyLinkUp ();
 
-    NS_LOG_WARN("DistributedBridge::ConnectServer: connected.");
+    NS_LOG_INFO("connected to distribution server.");
 
     m_connected = true;
     return true;
@@ -183,7 +191,7 @@ void DistributedBridge::DisconnetServer () {
 
     m_connected = false;
 
-    NS_LOG_WARN("DistributedBridge::DisconnetServer: disconnected.");
+    NS_LOG_WARN("disconnected from distribution server.");
 }
 
 bool DistributedBridge::IsServerConnected (void) const {
@@ -191,28 +199,29 @@ bool DistributedBridge::IsServerConnected (void) const {
 }
 
 void DistributedBridge::ReadCallback (uint8_t *buf, ssize_t len) {
-    if (len <= 0) {
-        NS_LOG_WARN ("DistributedBridge: read() from socket failed.");
-        DisconnetServer ();
+    if (buf == 0) {
+        NS_LOG_WARN ("read() from socket failed, disconnect and schedule retry in 1 sec.");
+        Simulator::ScheduleWithContext (m_nodeid, Seconds (0.), MakeEvent (&DistributedBridge::DisconnetServer, this));
+        Simulator::ScheduleWithContext (m_nodeid, Seconds (1.), MakeEvent (&DistributedBridge::TryConnectServer, this));
         return;
     }
 
     NS_ASSERT_MSG (buf != 0, "invalid buffer.");
 
     if (len < 2) {
-        NS_LOG_WARN ("DistributedBridge::ReadCallback: invalid packet (size too small).");
+        NS_LOG_WARN ("invalid packet (size too small).");
         std::free (buf);
         return;
     }
 
     payload_t *pl = (payload_t *) buf;
     if (len - 2 < pl->payload_len) {
-        NS_LOG_WARN ("DistributedBridge::ReadCallback: invalid packet (payload len=" << pl->payload_len << ", but buf_size=" << len << ").");
+        NS_LOG_WARN ("invalid packet (payload len=" << pl->payload_len << ", but buf_size=" << len << ").");
         std::free (buf);
         return;
     }
 
-    NS_LOG_INFO ("DistributedBridge::ReadCallback: scheduling forward on node " << m_nodeid);
+    NS_LOG_INFO ("scheduling forward on node " << m_nodeid);
     Simulator::ScheduleWithContext (m_nodeid, Seconds (0.), MakeEvent (&DistributedBridge::ForwardToBridgedDevice, this, buf + 2, len - 2));
 }
 
@@ -238,7 +247,7 @@ void DistributedBridge::ForwardToBridgedDevice (uint8_t *buf, ssize_t len) {
         packet->RemoveHeader(llc);
         ethtype = llc.GetType();
     }
-    NS_LOG_INFO("DistributedBridge::ForwardToBridgedDevice:" << src << " > " << dst);
+    NS_LOG_LOGIC("DistributedBridge::ForwardToBridgedDevice:" << src << " > " << dst);
     m_br_dev->SendFrom(packet, src, dst, ethtype);
 }
 
@@ -247,10 +256,10 @@ Ptr<NetDevice> DistributedBridge::GetBridgedNetDevice () {
 }
 
 void DistributedBridge::SetBridgedNetDevice (Ptr<NetDevice> dev) {
-    NS_ASSERT_MSG (m_br_dev == 0, "DistributedBridge::SetBridgedDevice: already bridged.");
-    NS_ASSERT_MSG (m_node != 0, "DistributedBridge::SetBridgedDevice: not assoc w/ any node.");
-    NS_ASSERT_MSG (dev != this, "DistributedBridge::SetBridgedDevice: can't bridge self.");
-    NS_ASSERT_MSG (dev->GetNode() == m_node, "DistributedBridge::SetBridgedDevice: bridged netdevice not assoc w/ bridge node.");
+    NS_ASSERT_MSG (m_br_dev == 0, "already bridged.");
+    NS_ASSERT_MSG (m_node != 0, "not assoc w/ any node.");
+    NS_ASSERT_MSG (dev != this, "can't bridge self.");
+    NS_ASSERT_MSG (dev->GetNode() == m_node, "bridged netdevice not assoc w/ bridge node.");
     NS_ABORT_MSG_UNLESS(Mac48Address::IsMatchingType (dev->GetAddress ()), "invalid bridge device, EUI48 not supported.");
     NS_ABORT_MSG_UNLESS(dev->SupportsSendFrom (), "invalid bridge device, SendFrom not supported.");
 
@@ -266,7 +275,7 @@ bool DistributedBridge::DiscardFromBridgedDevice (Ptr<NetDevice> device, Ptr<con
 
 bool DistributedBridge::ReceiveFromBridgedDevice (Ptr<NetDevice> device, Ptr<const Packet> packet, uint16_t protocol, Address const &src, Address const &dst, PacketType packetType) {
     if (!m_connected) {
-        NS_LOG_WARN("DistributedBridge::ReceiveFromBridgedDevice: server not connected.");
+        NS_LOG_WARN("server not connected.");
         return false;
     }
 
@@ -367,12 +376,12 @@ bool DistributedBridge::IsBridge (void) const {
 }
 
 bool DistributedBridge::Send (Ptr<Packet> packet, const Address& dst, uint16_t protocol) {
-    NS_LOG_WARN("DistributedBridge::Send: do not call Send() on bridge, call on bridged device instead.");
+    NS_LOG_WARN("do not call Send() on bridge, call on bridged device instead.");
     return false;
 }
 
 bool DistributedBridge::SendFrom (Ptr<Packet> packet, const Address& src, const Address& dst, uint16_t protocol) {
-    NS_LOG_WARN("DistributedBridge::SendFrom: do not call SendFrom() on bridge, call on bridged device instead.");
+    NS_LOG_WARN("do not call SendFrom() on bridge, call on bridged device instead.");
     return false;
 }
 

@@ -28,7 +28,7 @@ namespace ns3 {
 
 class DistributedBridgeFdReader : public FdReader {
 private:
-    FdReader::Data DoRead ();
+    FdReader::Data DoRead (void);
 };
 
 class DistributedBridge : public NetDevice {
@@ -47,6 +47,7 @@ public:
     void SetServerChannel (uint8_t channel_id);
     uint8_t GetServerChannel (void) const;
     bool ConnectServer ();
+    void TryConnectServer ();
     void DisconnetServer ();
     bool IsServerConnected (void) const;
 
